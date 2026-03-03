@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+from threading import Lock
 from dotenv import load_dotenv
 
 try:
@@ -25,7 +26,9 @@ load_dotenv(BACKEND_DIR / ".env", override=True)
 
 class RAGEngine:
     def __init__(self, use_openai=False, llm_provider=None):
-        self.vector_store = VectorStoreManager()
+        self._vector_store_lock = Lock()
+        self._vector_stores = {}
+        self.vector_store = self._get_vector_store()
         self.llm_client = None
         self.llm_model = None
         self.llm_provider = self._resolve_llm_provider(
@@ -34,12 +37,6 @@ class RAGEngine:
         )
 
         self._initialize_llm_client()
-
-        try:
-            self.vector_store.load_vectorstore()
-        except Exception as e:
-            print(f"⚠️ Banco vetorial não encontrado: {e}")
-            print("Será necessário criar um novo ao adicionar documentos.")
 
     def _resolve_llm_provider(self, use_openai=False, llm_provider=None):
         provider = (llm_provider or os.getenv("LLM_PROVIDER", "")).strip().lower()
@@ -106,61 +103,95 @@ class RAGEngine:
         """Indica se há um provedor de LLM pronto para uso."""
         return self.llm_client is not None
 
-    def is_ready(self):
-        """Indica se o índice vetorial está pronto para busca."""
-        return self.vector_store.has_indexed_documents()
+    def _resolve_persist_directory(self, persist_directory=None):
+        if persist_directory is None:
+            if getattr(self, "vector_store", None) is not None:
+                return self.vector_store.persist_directory
 
-    def bootstrap(self, data_path):
+            return (PROJECT_ROOT / "chroma_db").resolve()
+
+        return Path(persist_directory).expanduser().resolve()
+
+    def _get_vector_store(self, persist_directory=None):
+        resolved_directory = self._resolve_persist_directory(persist_directory)
+        workspace_key = str(resolved_directory)
+
+        with self._vector_store_lock:
+            vector_store = self._vector_stores.get(workspace_key)
+            if vector_store is None:
+                vector_store = VectorStoreManager(persist_directory=resolved_directory)
+                self._vector_stores[workspace_key] = vector_store
+
+        return vector_store
+
+    def load_vectorstore(self, persist_directory=None):
+        return self._get_vector_store(persist_directory).load_vectorstore()
+
+    def has_persisted_store(self, persist_directory=None):
+        return self._get_vector_store(persist_directory).has_persisted_store()
+
+    def get_collection_count(self, persist_directory=None):
+        return self._get_vector_store(persist_directory).get_collection_count()
+
+    def is_ready(self, persist_directory=None):
+        """Indica se o índice vetorial está pronto para busca."""
+        return self._get_vector_store(persist_directory).has_indexed_documents()
+
+    def bootstrap(self, data_path, persist_directory=None):
         """Garante que documentos existentes em disco sejam indexados."""
-        if self.is_ready():
+        vector_store = self._get_vector_store(persist_directory)
+
+        if vector_store.has_indexed_documents():
             return True
 
         print(f"📂 Verificando documentos existentes em: {data_path}")
-        documents = self.vector_store.load_documents(data_path=data_path)
+        documents = vector_store.load_documents(data_path=data_path)
 
         if not documents:
             print("⚠️ Nenhum documento encontrado para inicializar o índice")
             return False
 
         print("🆕 Inicializando banco vetorial a partir dos documentos existentes...")
-        return self.vector_store.create_vectorstore(documents)
+        return vector_store.create_vectorstore(documents)
 
-    def index_directory(self, data_path):
+    def index_directory(self, data_path, persist_directory=None):
         """Reindexa completamente o diretório informado."""
+        vector_store = self._get_vector_store(persist_directory)
         print(f"📂 Reindexando documentos de: {data_path}")
-        documents = self.vector_store.load_documents(data_path=data_path)
+        documents = vector_store.load_documents(data_path=data_path)
 
         if not documents:
             print("⚠️ Nenhum documento encontrado")
             return False
 
-        return self.vector_store.create_vectorstore(documents)
+        return vector_store.create_vectorstore(documents)
 
-    def index_files(self, file_paths):
+    def index_files(self, file_paths, persist_directory=None):
         """Indexa apenas os arquivos informados, substituindo versões anteriores."""
+        vector_store = self._get_vector_store(persist_directory)
         print(f"📄 Indexando {len(file_paths)} arquivo(s) enviado(s)")
-        documents = self.vector_store.load_documents(file_paths=file_paths)
+        documents = vector_store.load_documents(file_paths=file_paths)
 
         if not documents:
             print("⚠️ Nenhum documento válido encontrado para indexação")
             return False
 
-        if self.is_ready():
-            return self.vector_store.add_documents(documents)
+        if vector_store.has_indexed_documents():
+            return vector_store.add_documents(documents)
 
-        return self.vector_store.create_vectorstore(documents)
+        return vector_store.create_vectorstore(documents)
 
-    def delete_document_from_index(self, document_path):
+    def delete_document_from_index(self, document_path, persist_directory=None):
         """Remove um documento específico apenas do índice vetorial."""
-        return self.vector_store.delete_document_by_source(document_path)
+        return self._get_vector_store(persist_directory).delete_document_by_source(document_path)
 
-    def reset_index(self):
+    def reset_index(self, persist_directory=None):
         """Zera o índice vetorial sem apagar os arquivos de origem."""
-        return self.vector_store.reset_vectorstore()
+        return self._get_vector_store(persist_directory).reset_vectorstore()
 
-    def get_relevant_context(self, query, k=3):
+    def get_relevant_context(self, query, k=3, persist_directory=None):
         """Recupera contexto relevante para a query."""
-        results = self.vector_store.search_similar(query, k=k)
+        results = self._get_vector_store(persist_directory).search_similar(query, k=k)
 
         if not results:
             return "", []
@@ -199,24 +230,25 @@ class RAGEngine:
     #     Resposta:"""
 
     def _build_prompt(self, query, context):
-        return f"""Responda em portugues do Brasil, com linguagem natural e objetiva.
-        Use apenas o contexto fornecido, Mas explique e dê exemplos, como um professor.
-        Nao invente fatos, nao extrapole e nao complete lacunas com suposicoes. Explique o que o contexto fornece.
-        Se a resposta nao estiver no contexto, diga isso explicitamente.
-        Sintetize as informacoes como uma explicacao humana, sem copiar blocos longos do texto.
+        return f"""Você é um bibliotecário experiente e prestativo. Seu papel é ajudar as pessoas a 
+        encontrar e compreender informações nos documentos disponíveis.
 
+        DIRETRIZES:
+        - Responda em português do Brasil, com linguagem clara e acessível
+        - Base-se exclusivamente no contexto fornecido - você é guardião desses documentos
+        - Se a informação não estiver nos documentos, seja honesto: "Não encontrei essa informação nos documentos disponíveis"
+        - Sintetize as informações de forma didática, como se estivesse explicando para alguém
+        - Cite referências quando relevante: "De acordo com o documento X..."
+        - Se houver informações relacionadas que possam ajudar, mencione-as
 
-        Contexto:
+        Contexto (documentos disponíveis):
         {context}
 
-        Pergunta:
+        Pergunta do visitante:
         {query}
 
-        Resposta:"""
-
-      
-   
-   
+        Sua orientação:"""
+         
     def generate_response_llm(self, query, context):
         """Gera resposta usando o provedor LLM configurado."""
         if self.llm_client is None:
@@ -259,11 +291,15 @@ class RAGEngine:
 
         return "Não encontrei informação suficiente para responder."
 
-    def query(self, query, k=3):
+    def query(self, query, k=3, persist_directory=None):
         """Processa uma consulta completa."""
         print(f"🔍 Processando consulta: {query}")
 
-        context, sources = self.get_relevant_context(query, k)
+        context, sources = self.get_relevant_context(
+            query,
+            k=k,
+            persist_directory=persist_directory,
+        )
 
         if not context.strip():
             print("⚠️ Nenhum documento relevante encontrado")

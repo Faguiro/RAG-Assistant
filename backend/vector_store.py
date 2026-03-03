@@ -3,6 +3,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
+from threading import Lock
 from chromadb.api.client import SharedSystemClient
 from langchain_community.document_loaders import PyPDFLoader, TextLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -17,16 +18,30 @@ SUPPORTED_EXTENSIONS = {".pdf", ".txt"}
 
 
 class VectorStoreManager:
+    _shared_embeddings = None
+    _embeddings_lock = Lock()
+
     def __init__(self, persist_directory=None):
         self.persist_directory = Path(
             persist_directory or DEFAULT_PERSIST_DIRECTORY
         ).resolve()
-        # Usando embeddings gratuitos do HuggingFace
-        self.embeddings = HuggingFaceEmbeddings(
-            model_name="sentence-transformers/all-MiniLM-L6-v2",
-            model_kwargs={'device': 'cpu'}
-        )
+        self.embeddings = self._get_embeddings()
         self.vectorstore = None
+
+    @classmethod
+    def _get_embeddings(cls):
+        if cls._shared_embeddings is not None:
+            return cls._shared_embeddings
+
+        with cls._embeddings_lock:
+            if cls._shared_embeddings is None:
+                # Reaproveita o mesmo modelo de embeddings entre workspaces.
+                cls._shared_embeddings = HuggingFaceEmbeddings(
+                    model_name="sentence-transformers/all-MiniLM-L6-v2",
+                    model_kwargs={'device': 'cpu'}
+                )
+
+        return cls._shared_embeddings
 
     def _split_documents(self, documents):
         text_splitter = RecursiveCharacterTextSplitter(
