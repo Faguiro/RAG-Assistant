@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+.python-version
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
+# IDE and editor files
+.vscode/
+.idea/
+*.suo
+*.user
+*.userossc
+*.sln.docstates
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Runtime data
+chroma_db/
+backend/chroma_db/
+data/documentos/
+data/users.json
+backend/data/documentos/
+backend/data/documents/
+backend/data/users.json
+
+# Logs and local artifacts
+*.log
+logs/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/

@@ -1,0 +1,14 @@
+# requirements.txt - VERSÕES TESTADAS E FUNCIONAIS
+Flask==2.3.3
+Flask-CORS==4.0.0
+langchain==0.1.20
+langchain-community==0.0.38
+chromadb==0.4.22
+sentence-transformers==2.2.2
+huggingface_hub==0.20.3
+PyPDF2==3.0.1
+python-dotenv==1.0.0
+google-auth==2.40.3
+groq==0.18.0
+openai==1.6.1
+httpx<0.28

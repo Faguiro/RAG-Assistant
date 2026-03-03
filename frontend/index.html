@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RAG Assistant</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="noise-overlay"></div>
+    <div id="auth-overlay" class="auth-overlay">
+        <div class="auth-card">
+            <span class="auth-badge">Beta</span>
+            <h1>Entrar para acessar o RAG</h1>
+            <p>
+                O login Google funciona como gate global nesta fase. Os usuários autenticados acessam o mesmo conjunto de documentos.
+            </p>
+            <div id="google-signin-button" class="google-signin-slot"></div>
+            <div id="auth-feedback" class="auth-feedback">Faça login para liberar consulta, upload e manutenção.</div>
+        </div>
+    </div>
+
+    <div class="container">
+        <!-- Sidebar -->
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">
+                    <div class="logo-icon">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <span class="logo-text">RAG <em>Assistant</em></span>
+                </div>
+                <div class="session-panel">
+                    <div class="session-user">
+                        <img id="session-user-avatar" class="session-user-avatar" alt="" hidden>
+                        <div class="session-user-meta">
+                            <span id="session-user-name" class="session-user-name">Login necessário</span>
+                            <span id="session-user-email" class="session-user-email">Use Google para entrar</span>
+                        </div>
+                    </div>
+                    <button id="logout-button" class="sidebar-action-btn" type="button" hidden>Sair</button>
+                </div>
+            </div>
+
+            <div class="sidebar-section">
+                <div class="section-header">
+                    <div class="section-label">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            <polyline points="14,2 14,8 20,8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Documentos
+                    </div>
+                    <button id="reset-documents-button" class="sidebar-action-btn danger" type="button" title="Apagar todos os documentos e zerar a base">
+                        Resetar tudo
+                    </button>
+                </div>
+
+                <form id="upload-form" class="upload-area">
+                    <input type="file" id="file-input" accept=".pdf,.txt" multiple hidden>
+                    <label for="file-input" class="upload-label">
+                        <div class="upload-icon">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <polyline points="17,8 12,3 7,8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                                <line x1="12" y1="3" x2="12" y2="15" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
+                            </svg>
+                        </div>
+                        <span class="upload-hint">Arraste ou clique para enviar</span>
+                        <span class="upload-types">PDF, TXT</span>
+                    </label>
+                    <button type="submit" class="upload-btn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+                            <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        Enviar arquivos
+                    </button>
+                </form>
+
+                <ul id="documents-list" class="documents-list">
+                    <li class="doc-loading">
+                        <div class="doc-skeleton"></div>
+                        <div class="doc-skeleton short"></div>
+                    </li>
+                </ul>
+            </div>
+
+            <div class="status">
+                <div id="status-indicator" class="status-dot"></div>
+                <span id="status-text">Conectando...</span>
+            </div>
+        </aside>
+
+        <!-- Chat Area -->
+        <main class="chat-area">
+            <div class="chat-header">
+                <div class="chat-header-info">
+                    <h2>Converse com seus documentos</h2>
+                    <p>Faça perguntas e obtenha respostas fundamentadas</p>
+                </div>
+                <div class="header-actions">
+                    <button class="icon-btn" title="Limpar conversa" onclick="document.getElementById('chat-messages').innerHTML='<div class=\'message bot\'><div class=\'msg-content\'><p>Olá! Sou seu assistente RAG. Faça perguntas sobre os documentos que você enviar.</p></div><div class=\'msg-time\'></div></div>'">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="chat-messages" class="chat-messages">
+                <div class="message bot">
+                    <div class="msg-avatar">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </div>
+                    <div class="msg-body">
+                        <div class="msg-content">
+                            <p>Olá! Sou seu assistente RAG. Faça perguntas sobre os documentos que você enviar.</p>
+                        </div>
+                        <div class="msg-time"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="sources" class="sources"></div>
+
+            <div class="input-area">
+                <div class="input-wrapper">
+                    <textarea
+                        id="user-input"
+                        placeholder="Faça uma pergunta sobre seus documentos…"
+                        rows="1"
+                    ></textarea>
+                    <button id="send-button" class="send-btn" title="Enviar">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none">
+                            <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                    </button>
+                </div>
+                <div class="input-hint">Enter para enviar · Shift+Enter para nova linha</div>
+            </div>
+        </main>
+    </div>
+
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="script.js"></script>
+</body>
+</html>
