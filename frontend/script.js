@@ -3,9 +3,14 @@ class ChatbotRAG {
         this.apiUrl = window.location.origin.startsWith('http')
             ? window.location.origin
             : 'http://localhost:5000';
-        this.sourcesCollapsed = false;
+        this.sourcesCollapsed = true;
         this.isAuthenticated = false;
         this.currentUser = null;
+        this.currentAccess = null;
+        this.currentUsage = null;
+        this.currentDocuments = [];
+        this.isMobileSidebarOpen = false;
+        this.mobileSidebarBackdropTimer = null;
         this.authConfig = null;
         this.init();
     }
@@ -13,7 +18,9 @@ class ChatbotRAG {
     async init() {
         this.cacheElements();
         this.bindEvents();
+        this.configureMarkdown();
         this.setupAutoResize();
+        this.resetConversation();
         await this.initializeAuth();
     }
 
@@ -21,6 +28,7 @@ class ChatbotRAG {
         this.chatMessages    = document.getElementById('chat-messages');
         this.userInput       = document.getElementById('user-input');
         this.sendButton      = document.getElementById('send-button');
+        this.clearChatButton = document.getElementById('clear-chat-button');
         this.uploadForm      = document.getElementById('upload-form');
         this.fileInput       = document.getElementById('file-input');
         this.resetDocumentsButton = document.getElementById('reset-documents-button');
@@ -35,11 +43,28 @@ class ChatbotRAG {
         this.sessionUserName = document.getElementById('session-user-name');
         this.sessionUserEmail = document.getElementById('session-user-email');
         this.sessionUserAvatar = document.getElementById('session-user-avatar');
+        this.sessionUserPlan = document.getElementById('session-user-plan');
+        this.mobileSessionUserName = document.getElementById('mobile-session-user-name');
+        this.mobileSessionUserEmail = document.getElementById('mobile-session-user-email');
+        this.mobileSessionUserAvatar = document.getElementById('mobile-session-user-avatar');
+        this.mobileSessionUserPlan = document.getElementById('mobile-session-user-plan');
+        this.uploadPolicy = document.getElementById('upload-policy');
+        this.sidebar = document.querySelector('.sidebar');
+        this.mobileMenuButton = document.getElementById('mobile-menu-button');
+        this.mobileSidebarBackdrop = document.getElementById('mobile-sidebar-backdrop');
     }
 
     bindEvents() {
         this.sendButton.addEventListener('click', () => this.sendMessage());
+        this.clearChatButton.addEventListener('click', () => this.resetConversation());
         this.logoutButton.addEventListener('click', () => this.logout());
+        this.mobileMenuButton.addEventListener('click', () => this.toggleMobileSidebar());
+        this.mobileSidebarBackdrop.addEventListener('click', () => this.closeMobileSidebar());
+        window.addEventListener('resize', () => {
+            if (!this.isMobileViewport()) {
+                this.closeMobileSidebar({ force: true });
+            }
+        });
 
         this.userInput.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' && !e.shiftKey) {
@@ -74,6 +99,165 @@ class ChatbotRAG {
         });
 
         this.fileInput.addEventListener('change', () => this.updateUploadLabel());
+    }
+
+    isMobileViewport() {
+        return window.matchMedia('(max-width: 768px)').matches;
+    }
+
+    escapeHtml(value) {
+        return String(value ?? '')
+            .replaceAll('&', '&amp;')
+            .replaceAll('<', '&lt;')
+            .replaceAll('>', '&gt;')
+            .replaceAll('"', '&quot;')
+            .replaceAll("'", '&#39;');
+    }
+
+    configureMarkdown() {
+        if (!window.marked?.setOptions) return;
+
+        window.marked.setOptions({
+            breaks: true,
+            gfm: true,
+        });
+    }
+
+    renderPlainText(text) {
+        const normalizedText = String(text ?? '').trim();
+        if (!normalizedText) {
+            return '<p></p>';
+        }
+
+        return normalizedText
+            .split(/\n{2,}/)
+            .map(paragraph => `<p>${this.escapeHtml(paragraph).replaceAll('\n', '<br>')}</p>`)
+            .join('');
+    }
+
+    renderMarkdown(text) {
+        const normalizedText = String(text ?? '').trim();
+        if (!normalizedText) {
+            return '<p></p>';
+        }
+
+        if (!window.marked?.parse || !window.DOMPurify?.sanitize) {
+            return this.renderPlainText(normalizedText);
+        }
+
+        const rawHtml = window.marked.parse(normalizedText);
+        return window.DOMPurify.sanitize(rawHtml);
+    }
+
+    hashString(value) {
+        let hash = 0;
+        for (const char of String(value ?? '')) {
+            hash = ((hash << 5) - hash) + char.charCodeAt(0);
+            hash |= 0;
+        }
+        return Math.abs(hash);
+    }
+
+    buildAvatarInitials(user = this.currentUser) {
+        const email = String(user?.email || '').trim();
+        const name = String(user?.name || '').trim();
+        const source = name || email.split('@')[0] || 'U';
+        const parts = source.split(/[\s._-]+/).filter(Boolean);
+
+        if (parts.length === 0) {
+            return 'U';
+        }
+
+        if (parts.length === 1) {
+            return parts[0].slice(0, 2).toUpperCase();
+        }
+
+        return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+    }
+
+    buildAvatarDataUrl(user = this.currentUser) {
+        const seed = user?.email || user?.name || 'usuario';
+        const hue = this.hashString(seed) % 360;
+        const secondaryHue = (hue + 28) % 360;
+        const initials = this.buildAvatarInitials(user);
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+                <defs>
+                    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="hsl(${hue} 68% 46%)" />
+                        <stop offset="100%" stop-color="hsl(${secondaryHue} 72% 30%)" />
+                    </linearGradient>
+                </defs>
+                <rect width="64" height="64" rx="32" fill="url(#g)" />
+                <text x="50%" y="53%" text-anchor="middle" dominant-baseline="middle"
+                    font-family="DM Sans, Arial, sans-serif" font-size="24" font-weight="700" fill="white">
+                    ${this.escapeHtml(initials)}
+                </text>
+            </svg>
+        `;
+
+        return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
+    }
+
+    updateSessionAvatars(user) {
+        const avatarSrc = user?.picture || this.buildAvatarDataUrl(user);
+        this.sessionUserAvatar.src = avatarSrc;
+        this.sessionUserAvatar.hidden = false;
+        this.mobileSessionUserAvatar.src = avatarSrc;
+        this.mobileSessionUserAvatar.hidden = false;
+    }
+
+    buildUserAvatarMarkup(user = this.currentUser) {
+        const avatarSrc = this.buildAvatarDataUrl(user);
+        const altText = this.escapeHtml(user?.email || user?.name || 'Usuário');
+        return `<img class="msg-avatar-image" src="${avatarSrc}" alt="${altText}">`;
+    }
+
+    getMessageContentMarkup(text, sender) {
+        return sender === 'bot'
+            ? this.renderMarkdown(text)
+            : this.renderPlainText(text);
+    }
+
+    toggleMobileSidebar() {
+        if (!this.isMobileViewport()) return;
+
+        if (this.isMobileSidebarOpen) {
+            this.closeMobileSidebar();
+            return;
+        }
+
+        this.openMobileSidebar();
+    }
+
+    openMobileSidebar() {
+        if (!this.isMobileViewport()) return;
+
+        clearTimeout(this.mobileSidebarBackdropTimer);
+        this.isMobileSidebarOpen = true;
+        this.sidebar.classList.add('mobile-open');
+        this.mobileMenuButton.setAttribute('aria-expanded', 'true');
+        this.mobileSidebarBackdrop.hidden = false;
+        requestAnimationFrame(() => {
+            this.mobileSidebarBackdrop.classList.add('visible');
+        });
+        document.body.classList.add('mobile-sidebar-open');
+    }
+
+    closeMobileSidebar({ force = false } = {}) {
+        if (!force && !this.isMobileSidebarOpen) return;
+
+        clearTimeout(this.mobileSidebarBackdropTimer);
+        this.isMobileSidebarOpen = false;
+        this.sidebar.classList.remove('mobile-open');
+        this.mobileMenuButton.setAttribute('aria-expanded', 'false');
+        this.mobileSidebarBackdrop.classList.remove('visible');
+        this.mobileSidebarBackdropTimer = setTimeout(() => {
+            if (!this.isMobileSidebarOpen) {
+                this.mobileSidebarBackdrop.hidden = true;
+            }
+        }, 220);
+        document.body.classList.remove('mobile-sidebar-open');
     }
 
     async initializeAuth() {
@@ -167,7 +351,11 @@ class ChatbotRAG {
             }
 
             this.setAuthenticatedState(data.user);
-            this.addMessage(`Sessão iniciada como ${data.user?.name || data.user?.email}.`, 'bot');
+            const planLabel = data.user?.access?.plan?.label || 'plano atual';
+            this.addMessage(
+                `Sessão iniciada como ${data.user?.name || data.user?.email}. Workspace isolado habilitado em ${planLabel}.`,
+                'bot'
+            );
             await this.refreshProtectedData();
         } catch {
             this.authFeedback.textContent = 'Erro ao conectar com o backend durante o login.';
@@ -181,6 +369,7 @@ class ChatbotRAG {
             // Ignora erro de rede no logout; o estado local ainda será limpo.
         }
 
+        this.closeMobileSidebar({ force: true });
         this.setLoggedOutState();
         this.resetConversation();
         this.clearSources();
@@ -191,33 +380,41 @@ class ChatbotRAG {
     setAuthenticatedState(user) {
         this.isAuthenticated = true;
         this.currentUser = user;
+        this.currentAccess = user?.access || null;
         this.authOverlay.classList.add('hidden');
         this.logoutButton.hidden = false;
         this.logoutButton.disabled = false;
         this.sessionUserName.textContent = user?.name || 'Usuário autenticado';
         this.sessionUserEmail.textContent = user?.email || '';
+        this.mobileSessionUserName.textContent = user?.name || 'Usuário autenticado';
+        this.mobileSessionUserEmail.textContent = user?.email || '';
+        this.updateSessionAvatars(user);
 
-        if (user?.picture) {
-            this.sessionUserAvatar.src = user.picture;
-            this.sessionUserAvatar.hidden = false;
-        } else {
-            this.sessionUserAvatar.hidden = true;
-            this.sessionUserAvatar.removeAttribute('src');
-        }
-
+        this.updateAccessUi();
         this.enableApp();
     }
 
     setLoggedOutState() {
         this.isAuthenticated = false;
         this.currentUser = null;
+        this.currentAccess = null;
+        this.currentUsage = null;
+        this.currentDocuments = [];
+        this.closeMobileSidebar({ force: true });
         this.authOverlay.classList.remove('hidden');
         this.authFeedback.textContent = 'Faça login para liberar consulta, upload e manutenção.';
         this.logoutButton.hidden = true;
         this.sessionUserName.textContent = 'Login necessário';
         this.sessionUserEmail.textContent = 'Use Google para entrar';
+        this.mobileSessionUserName.textContent = 'Login necessário';
+        this.mobileSessionUserEmail.textContent = 'Use Google para entrar';
+        this.sessionUserPlan.textContent = 'Plano indisponível';
+        this.mobileSessionUserPlan.textContent = 'Plano indisponível';
         this.sessionUserAvatar.hidden = true;
         this.sessionUserAvatar.removeAttribute('src');
+        this.mobileSessionUserAvatar.hidden = true;
+        this.mobileSessionUserAvatar.removeAttribute('src');
+        this.updateAccessUi();
         this.disableApp();
     }
 
@@ -251,6 +448,61 @@ class ChatbotRAG {
         this.renderGoogleButton();
     }
 
+    formatBytes(bytes) {
+        if (!Number.isFinite(bytes) || bytes <= 0) {
+            return '0 MB';
+        }
+
+        const megabytes = bytes / (1024 * 1024);
+        if (megabytes >= 10) {
+            return `${megabytes.toFixed(0)} MB`;
+        }
+
+        return `${megabytes.toFixed(1)} MB`;
+    }
+
+    buildUploadPolicyText() {
+        const access = this.currentAccess;
+        const usage = this.currentUsage;
+
+        if (!access) {
+            return 'Faça login para ver os limites da sua conta.';
+        }
+
+        const parts = [access.plan?.label || 'Plano ativo'];
+        const maxDocuments = access.limits?.max_documents;
+        const maxFileSizeBytes = access.limits?.max_file_size_bytes;
+        const usedDocuments = usage?.documents_count ?? this.currentDocuments.length;
+
+        if (Number.isFinite(maxDocuments)) {
+            parts.push(`${usedDocuments}/${maxDocuments} arquivos`);
+        }
+
+        if (Number.isFinite(maxFileSizeBytes)) {
+            parts.push(`${this.formatBytes(maxFileSizeBytes)} por arquivo`);
+        }
+
+        if (usage?.limit_reached) {
+            parts.push('limite atingido');
+        }
+
+        return parts.join(' · ');
+    }
+
+    updateAccessUi() {
+        if (this.sessionUserPlan) {
+            this.sessionUserPlan.textContent = this.currentAccess?.plan?.label || 'Plano indisponível';
+        }
+        if (this.mobileSessionUserPlan) {
+            this.mobileSessionUserPlan.textContent = this.currentAccess?.plan?.label || 'Plano indisponível';
+        }
+
+        if (this.uploadPolicy) {
+            this.uploadPolicy.textContent = this.buildUploadPolicyText();
+            this.uploadPolicy.classList.toggle('is-warning', Boolean(this.currentUsage?.limit_reached));
+        }
+    }
+
     updateUploadLabel() {
         const files = this.fileInput.files;
         const hint  = this.uploadForm.querySelector('.upload-hint');
@@ -281,13 +533,23 @@ class ChatbotRAG {
                 return;
             }
             const data = await response.json();
+            this.currentAccess = data.access || this.currentAccess;
+            this.currentUsage = data.usage || null;
+            this.updateAccessUi();
 
             const llmLabel = data.llm_ready
                 ? `LLM: ${data.llm_provider}`
                 : 'LLM: fallback';
+            const workspaceLabel = data.workspace?.scope === 'user'
+                ? 'espaço isolado'
+                : 'espaço global';
+            const planLabel = data.access?.plan?.key || 'sem-plano';
+            const documentUsageLabel = Number.isFinite(data.access?.limits?.max_documents)
+                ? `${data.usage?.documents_count ?? data.documents_count}/${data.access.limits.max_documents} docs`
+                : `${data.documents_count} docs`;
 
             this.statusIndicator.className = 'status-dot online';
-            this.statusText.textContent = `Online · ${data.documents_count} docs · ${llmLabel}`;
+            this.statusText.textContent = `Online · ${documentUsageLabel} · ${planLabel} · ${workspaceLabel} · ${llmLabel}`;
         } catch {
             this.statusIndicator.className = 'status-dot';
             this.statusText.textContent = 'Servidor offline';
@@ -302,13 +564,15 @@ class ChatbotRAG {
                 return;
             }
             const data = await response.json();
+            this.currentDocuments = Array.isArray(data.documents) ? data.documents : [];
+            this.updateAccessUi();
 
             this.documentsList.innerHTML = '';
 
-            if (data.documents.length === 0) {
+            if (this.currentDocuments.length === 0) {
                 this.documentsList.innerHTML = '<li style="color:var(--text-muted);border-style:dashed">Nenhum documento carregado</li>';
             } else {
-                data.documents.forEach(doc => {
+                this.currentDocuments.forEach(doc => {
                     const li = document.createElement('li');
                     li.className = 'document-item';
                     li.title = doc;
@@ -351,6 +615,7 @@ class ChatbotRAG {
 
             if (response.ok) {
                 this.addMessage(`Documento removido: ${filename}`, 'bot');
+                this.closeMobileSidebar();
                 this.loadDocuments();
                 this.checkStatus();
                 this.clearSources();
@@ -382,6 +647,7 @@ class ChatbotRAG {
 
             if (response.ok) {
                 this.addMessage('Todos os documentos foram apagados e a base foi zerada.', 'bot');
+                this.closeMobileSidebar();
                 this.loadDocuments();
                 this.checkStatus();
                 this.clearSources();
@@ -401,6 +667,34 @@ class ChatbotRAG {
         if (!this.isAuthenticated) return;
         const files = this.fileInput.files;
         if (files.length === 0) return;
+
+        const selectedFiles = Array.from(files);
+        const maxFileSizeBytes = this.currentAccess?.limits?.max_file_size_bytes;
+        const maxDocuments = this.currentAccess?.limits?.max_documents;
+        const projectedDocumentNames = new Set(this.currentDocuments);
+
+        for (const file of selectedFiles) {
+            projectedDocumentNames.add(file.name);
+        }
+
+        if (Number.isFinite(maxFileSizeBytes)) {
+            const oversizedFiles = selectedFiles.filter(file => file.size > maxFileSizeBytes);
+            if (oversizedFiles.length > 0) {
+                this.addMessage(
+                    `Arquivos acima do limite de ${this.formatBytes(maxFileSizeBytes)}: ${oversizedFiles.map(file => file.name).join(', ')}`,
+                    'bot'
+                );
+                return;
+            }
+        }
+
+        if (Number.isFinite(maxDocuments) && projectedDocumentNames.size > maxDocuments) {
+            this.addMessage(
+                `O plano atual permite no máximo ${maxDocuments} documento(s) armazenado(s). Exclua algum arquivo antes de enviar novos.`,
+                'bot'
+            );
+            return;
+        }
 
         const btn = this.uploadForm.querySelector('.upload-btn');
         if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
@@ -422,7 +716,11 @@ class ChatbotRAG {
 
             if (response.ok) {
                 const count = Array.isArray(data.filenames) ? data.filenames.length : 1;
+                this.currentAccess = data.access || this.currentAccess;
+                this.currentUsage = data.usage || this.currentUsage;
+                this.updateAccessUi();
                 this.addMessage(`✓ ${count} documento(s) enviado(s) com sucesso!`, 'bot');
+                this.closeMobileSidebar();
                 if (Array.isArray(data.ignored) && data.ignored.length > 0) {
                     this.addMessage(`Arquivos ignorados: ${data.ignored.join(', ')}`, 'bot');
                 }
@@ -431,6 +729,8 @@ class ChatbotRAG {
                 this.loadDocuments();
                 this.checkStatus();
             } else {
+                this.currentUsage = data.usage || this.currentUsage;
+                this.updateAccessUi();
                 this.addMessage(`Erro no envio: ${data.error}`, 'bot');
             }
         } catch {
@@ -448,6 +748,7 @@ class ChatbotRAG {
         const query = this.userInput.value.trim();
         if (!query) return;
 
+        this.closeMobileSidebar();
         this.addMessage(query, 'user');
         this.userInput.value = '';
         this.userInput.style.height = 'auto';
@@ -490,15 +791,14 @@ class ChatbotRAG {
 
         const time = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 
-        // Avatar icon SVG
         const botSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-        const userSVG = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="7" r="4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
-
-        // Convert plain text newlines to paragraphs
-        const formatted = text.split('\n').filter(l => l.trim()).map(l => `<p>${l}</p>`).join('') || `<p>${text}</p>`;
+        const userAvatarMarkup = this.buildUserAvatarMarkup();
+        const formatted = this.getMessageContentMarkup(text, sender);
 
         wrap.innerHTML = `
-            <div class="msg-avatar">${sender === 'bot' ? botSVG : userSVG}</div>
+            <div class="msg-avatar ${sender === 'user' ? 'has-image' : ''}">
+                ${sender === 'bot' ? botSVG : userAvatarMarkup}
+            </div>
             <div class="msg-body">
                 <div class="msg-content">${formatted}</div>
                 <div class="msg-time">${time}</div>
@@ -543,7 +843,7 @@ class ChatbotRAG {
 
         if (!sources || sources.length === 0) return;
 
-        this.sourcesCollapsed = false;
+        this.sourcesCollapsed = true;
         this.sourcesDiv.classList.add('has-content');
 
         const header = document.createElement('div');
@@ -558,8 +858,6 @@ class ChatbotRAG {
         const collapseButton = document.createElement('button');
         collapseButton.type = 'button';
         collapseButton.className = 'sources-action-btn';
-        collapseButton.title = 'Colapsar fontes';
-        collapseButton.setAttribute('aria-label', 'Colapsar fontes');
         collapseButton.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none"><path d="M6 9l6 6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
         collapseButton.addEventListener('click', () => this.toggleSourcesCollapse());
 
@@ -590,6 +888,8 @@ class ChatbotRAG {
         });
 
         this.sourcesDiv.appendChild(content);
+        this.sourcesDiv.classList.toggle('collapsed', this.sourcesCollapsed);
+        this.updateSourcesCollapseButton(collapseButton);
     }
 
     scrollToBottom() {
@@ -597,10 +897,18 @@ class ChatbotRAG {
     }
 
     clearSources() {
-        this.sourcesCollapsed = false;
+        this.sourcesCollapsed = true;
         this.sourcesDiv.innerHTML = '';
         this.sourcesDiv.classList.remove('has-content');
         this.sourcesDiv.classList.remove('collapsed');
+    }
+
+    updateSourcesCollapseButton(button = this.sourcesDiv.querySelector('.sources-action-btn')) {
+        if (!button) return;
+
+        const label = this.sourcesCollapsed ? 'Expandir fontes' : 'Colapsar fontes';
+        button.title = label;
+        button.setAttribute('aria-label', label);
     }
 
     toggleSourcesCollapse() {
@@ -608,23 +916,13 @@ class ChatbotRAG {
 
         this.sourcesCollapsed = !this.sourcesCollapsed;
         this.sourcesDiv.classList.toggle('collapsed', this.sourcesCollapsed);
+        this.updateSourcesCollapseButton();
     }
 
     resetConversation() {
-        this.chatMessages.innerHTML = `
-            <div class="message bot">
-                <div class="msg-avatar">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-                    </svg>
-                </div>
-                <div class="msg-body">
-                    <div class="msg-content">
-                        <p>Olá! Sou seu assistente RAG. Faça perguntas sobre os documentos que você enviar.</p>
-                    </div>
-                    <div class="msg-time"></div>
-                </div>
-            </div>`;
+        this.chatMessages.innerHTML = '';
+        this.addMessage('Olá! Sou seu assistente RAG. Faça perguntas sobre os documentos que você enviar.', 'bot');
+        this.clearSources();
     }
 }
 

@@ -24,10 +24,14 @@ O foco atual é:
   Orquestra recuperação de contexto e geração de resposta.
 - `backend/vector_store.py`
   Carregamento de documentos, embeddings e persistência vetorial.
-- `data/documentos/`
-  Documentos enviados para indexação.
-- `chroma_db/`
-  Banco vetorial persistido localmente.
+- `backend/user_access.py`
+  Catálogo de planos, permissões e limites de acesso.
+- `data/users.json`
+  Registro local de usuários autenticados, com papel, plano e workspace.
+- `data/users/<workspace_key>/documentos/`
+  Documentos isolados por conta Google.
+- `data/users/<workspace_key>/chroma_db/`
+  Banco vetorial isolado por conta Google.
 
 ## Funcionalidades atuais
 
@@ -36,6 +40,8 @@ O foco atual é:
 - exibição de fontes consultadas no frontend
 - login Google como gate global da aplicação
 - persistência local de usuários autenticados em `data/users.json`
+- isolamento de documentos e índice vetorial por conta Google
+- conta simples com limite de até 3 arquivos e 5 MB por documento
 - exclusão individual de documento
 - reset completo dos documentos e do índice vetorial
 - reindexação do banco a partir dos arquivos em disco
@@ -84,6 +90,8 @@ Observações:
 - `GOOGLE_CLIENT_ID` habilita o login Google.
 - `SECRET_KEY` protege a sessão autenticada no Flask.
 - usuários autenticados são persistidos em `data/users.json`.
+- cada conta recebe um workspace próprio em `data/users/<workspace_key>/`.
+- o backend já mantém base para papéis e planos de usuário, começando por `member/simple`.
 
 ## Como executar
 
@@ -102,10 +110,12 @@ http://localhost:5000
 ## Fluxo básico
 
 1. Envie documentos pela sidebar.
-2. O backend salva os arquivos em `data/documentos/`.
-3. O índice vetorial é criado ou atualizado em `chroma_db/`.
-4. Faça perguntas no chat.
-5. O sistema recupera chunks relevantes e responde com base no contexto.
+2. O backend valida o plano da conta atual.
+3. Em `simple`, cada conta pode manter até 3 arquivos com no máximo 5 MB por arquivo.
+4. O backend salva os arquivos aprovados em `data/users/<workspace_key>/documentos/`.
+5. O índice vetorial é criado ou atualizado em `data/users/<workspace_key>/chroma_db/`.
+6. Faça perguntas no chat.
+7. O sistema recupera chunks relevantes apenas do workspace da conta logada e responde com base nesse contexto.
 
 ## Endpoints principais
 
@@ -120,9 +130,9 @@ http://localhost:5000
 - `POST /api/auth/logout`
   Encerra a sessão autenticada.
 - `POST /api/upload`
-  Envia documentos.
+  Envia documentos respeitando o plano atual da conta.
 - `GET /api/status`
-  Retorna status da API, documentos e estado do LLM.
+  Retorna status da API, documentos, estado do LLM, plano e uso da conta.
 - `GET /api/documents`
   Lista documentos disponíveis.
 - `DELETE /api/documents/<filename>`
@@ -152,7 +162,8 @@ Invoke-RestMethod -Method Post http://localhost:5000/api/documents/reset
 ## Limitações atuais
 
 - reindexações podem ser lentas com corpus grande
-- o gate atual é global; ainda não existe isolamento de documentos por usuário
+- ainda não existe compartilhamento controlado de documentos entre usuários
+- apenas o plano `simple` está definido nesta fase, embora a base para novos níveis já exista
 - não há suíte de testes automatizados consolidada
 - o projeto ainda não possui fluxo formal de migração de dados
 - o Chroma no Windows pode exigir cuidado em operações de manutenção durante desenvolvimento
@@ -164,15 +175,18 @@ RAG_AI/
 ├── backend/
 ├── frontend/
 ├── data/
-│   └── documentos/
-├── chroma_db/
+│   ├── users.json
+│   └── users/
+│       └── <workspace_key>/
+│           ├── documentos/
+│           └── chroma_db/
 ├── README.md
 └── .gitignore
 ```
 
 ## Notas para esta fase beta
 
-- trate `data/documentos/` e `chroma_db/` como dados locais de trabalho
+- trate `data/users/<workspace_key>/` como dado local de trabalho da conta correspondente
 - não versione credenciais reais
 - não considere a interface atual como estável
 - prefira testar reset e exclusão em documentos temporários antes de usar corpus importante

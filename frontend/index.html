@@ -11,12 +11,13 @@
 </head>
 <body>
     <div class="noise-overlay"></div>
+    <div id="mobile-sidebar-backdrop" class="mobile-sidebar-backdrop" hidden></div>
     <div id="auth-overlay" class="auth-overlay">
         <div class="auth-card">
             <span class="auth-badge">Beta</span>
             <h1>Entrar para acessar o RAG</h1>
             <p>
-                O login Google funciona como gate global nesta fase. Os usuários autenticados acessam o mesmo conjunto de documentos.
+                O login Google cria um workspace isolado por conta. Nesta fase, novas contas entram no plano simples, com até 3 arquivos de 5 MB por documento.
             </p>
             <div id="google-signin-button" class="google-signin-slot"></div>
             <div id="auth-feedback" class="auth-feedback">Faça login para liberar consulta, upload e manutenção.</div>
@@ -41,6 +42,7 @@
                         <div class="session-user-meta">
                             <span id="session-user-name" class="session-user-name">Login necessário</span>
                             <span id="session-user-email" class="session-user-email">Use Google para entrar</span>
+                            <span id="session-user-plan" class="session-user-plan">Plano indisponível</span>
                         </div>
                     </div>
                     <button id="logout-button" class="sidebar-action-btn" type="button" hidden>Sair</button>
@@ -74,6 +76,9 @@
                         <span class="upload-hint">Arraste ou clique para enviar</span>
                         <span class="upload-types">PDF, TXT</span>
                     </label>
+                    <div id="upload-policy" class="upload-policy">
+                        Plano simples · até 3 arquivos · 5 MB por arquivo
+                    </div>
                     <button type="submit" class="upload-btn">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
                             <path d="M5 12h14M12 5l7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -98,13 +103,39 @@
 
         <!-- Chat Area -->
         <main class="chat-area">
+            <div class="mobile-main-panel">
+                <div class="mobile-main-brand">
+                    <div class="logo">
+                        <div class="logo-icon">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </div>
+                        <span class="logo-text">RAG <em>Assistant</em></span>
+                    </div>
+                </div>
+                <div class="mobile-main-user">
+                    <img id="mobile-session-user-avatar" class="session-user-avatar" alt="" hidden>
+                    <div class="mobile-main-user-meta">
+                        <span id="mobile-session-user-name" class="session-user-name">Login necessário</span>
+                        <span id="mobile-session-user-email" class="session-user-email">Use Google para entrar</span>
+                        <span id="mobile-session-user-plan" class="session-user-plan">Plano indisponível</span>
+                    </div>
+                </div>
+            </div>
             <div class="chat-header">
                 <div class="chat-header-info">
                     <h2>Converse com seus documentos</h2>
                     <p>Faça perguntas e obtenha respostas fundamentadas</p>
                 </div>
                 <div class="header-actions">
-                    <button class="icon-btn" title="Limpar conversa" onclick="document.getElementById('chat-messages').innerHTML='<div class=\'message bot\'><div class=\'msg-content\'><p>Olá! Sou seu assistente RAG. Faça perguntas sobre os documentos que você enviar.</p></div><div class=\'msg-time\'></div></div>'">
+                    <button id="mobile-menu-button" class="icon-btn mobile-menu-btn" title="Abrir arquivos" aria-label="Abrir arquivos" aria-expanded="false">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                            <path d="M3 7.5a2 2 0 0 1 2-2h4.1a2 2 0 0 1 1.4.57l1.26 1.26A2 2 0 0 0 13.17 8H19a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-9z" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M3 10.5h18" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+                        </svg>
+                    </button>
+                    <button id="clear-chat-button" class="icon-btn" title="Limpar conversa" aria-label="Limpar conversa">
                         <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                             <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
                         </svg>
@@ -149,6 +180,8 @@
     </div>
 
     <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.2.4/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked@13.0.3/marked.min.js"></script>
     <script src="script.js"></script>
 </body>
 </html>

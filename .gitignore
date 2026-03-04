@@ -41,6 +41,7 @@ data/users.json
 backend/data/documentos/
 backend/data/documents/
 backend/data/users.json
+data
 
 # Logs and local artifacts
 *.log
